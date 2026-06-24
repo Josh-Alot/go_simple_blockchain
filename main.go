@@ -29,10 +29,10 @@ func (chain *Blockchain) AddBlock(data string) {
 }
 
 func main() {
-	generisBlock := Block{Data: []byte("Genesis block")}
-	generisBlock.CalculateHash()
+	genesisBlock := Block{Data: []byte("Genesis block")}
+	genesisBlock.CalculateHash()
 
-	chain := Blockchain{Blocks: []*Block{&generisBlock}}
+	chain := Blockchain{Blocks: []*Block{&genesisBlock}}
 	chain.AddBlock("João pagou 10 para Maria")
 	chain.AddBlock("Pedro pagou 15 para João")
 
