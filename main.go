@@ -1,36 +1,63 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 type Block struct {
 	Data         []byte
 	Hash         []byte
 	PreviousHash []byte
+	Nonce        int
 }
 
 type Blockchain struct {
 	Blocks []*Block
 }
 
-func (block *Block) CalculateHash() {
-	hash := sha256.Sum256(append(block.PreviousHash, block.Data...))
-	block.Hash = hash[:]
+const difficulty = 3
+
+func (block *Block) CalculateHash(nonce int) []byte {
+	blockData := bytes.Join([][]byte{block.PreviousHash, block.Data, []byte(strconv.Itoa(nonce))}, []byte{})
+	hash := sha256.Sum256(blockData)
+
+	return hash[:]
+}
+
+func (block *Block) Mine() {
+	nonce := 0
+	goal := strings.Repeat("0", difficulty)
+
+	for {
+		hash := block.CalculateHash(nonce)
+		hashHex := fmt.Sprintf("%x", hash)
+
+		if strings.HasPrefix(hashHex, goal) {
+			block.Hash = hash
+			block.Nonce = nonce
+			break
+		} else {
+			nonce++
+		}
+
+	}
 }
 
 func (chain *Blockchain) AddBlock(data string) {
 	previousBlock := chain.Blocks[len(chain.Blocks)-1]
 	newBlock := Block{Data: []byte(data), PreviousHash: previousBlock.Hash}
-	newBlock.CalculateHash()
+	newBlock.Mine()
 
 	chain.Blocks = append(chain.Blocks, &newBlock)
 }
 
 func main() {
 	genesisBlock := Block{Data: []byte("Genesis block")}
-	genesisBlock.CalculateHash()
+	genesisBlock.Mine()
 
 	chain := Blockchain{Blocks: []*Block{&genesisBlock}}
 	chain.AddBlock("João pagou 10 para Maria")
