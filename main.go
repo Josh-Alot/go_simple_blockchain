@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -22,10 +23,26 @@ type Blockchain struct {
 	Blocks []*Block
 }
 
+type TxInput struct {
+	TransactionHash []byte
+	TxOutputIndex   int
+}
+
+type TxOutput struct {
+	Amount int
+	Owner  []byte
+}
+
+type Transaction struct {
+	ID      []byte
+	Inputs  []TxInput
+	Outputs []TxOutput
+}
+
 const difficulty = 3
 const chainFile = "blockchain.dat"
 
-func (block *Block) CalculateHash(nonce int) []byte {
+func (block *Block) CalculateBlockHash(nonce int) []byte {
 	blockData := bytes.Join([][]byte{block.PreviousHash, block.Data, []byte(strconv.Itoa(nonce))}, []byte{})
 	hash := sha256.Sum256(blockData)
 
@@ -37,7 +54,7 @@ func (block *Block) Mine() {
 	goal := strings.Repeat("0", difficulty)
 
 	for {
-		hash := block.CalculateHash(nonce)
+		hash := block.CalculateBlockHash(nonce)
 		hashHex := fmt.Sprintf("%x", hash)
 
 		if strings.HasPrefix(hashHex, goal) {
@@ -106,12 +123,27 @@ func (chain *Blockchain) IsValid() bool {
 			return false
 		}
 
-		if hash := currentBlock.CalculateHash(currentBlock.Nonce); !bytes.Equal(hash, currentBlock.Hash) {
+		if hash := currentBlock.CalculateBlockHash(currentBlock.Nonce); !bytes.Equal(hash, currentBlock.Hash) {
 			return false
 		}
 	}
 
 	return true
+}
+
+func (transaction *Transaction) CalculateTxID() []byte {
+	tx := struct {
+		Inputs  []TxInput
+		Outputs []TxOutput
+	}{transaction.Inputs, transaction.Outputs}
+
+	serial, err := json.Marshal(tx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	id := sha256.Sum256(serial)
+	return id[:]
 }
 
 func main() {
@@ -125,7 +157,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		// chain.Blocks[1].Data = []byte("Sindios, grupo rakiado")
+		// chain.Blocks[1].Data = []byte("chain adulterada")
 
 		isFileValid := chain.IsValid()
 		if !isFileValid {
