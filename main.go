@@ -183,16 +183,11 @@ func main() {
 			log.Fatal(err)
 		}
 
-		// chain.Blocks[1].Data = []byte("chain adulterada")
-
 		isFileValid := chain.IsValid()
 		if !isFileValid {
 			log.Fatal("Invalid blockchain file, file is corrupted")
 		}
 	}
-
-	// chain.AddBlock("João pagou 10 para Maria")
-	// chain.AddBlock("Pedro pagou 15 para João")
 
 	fmt.Println("**** Blockchain ****")
 	for i, block := range chain.Blocks {
