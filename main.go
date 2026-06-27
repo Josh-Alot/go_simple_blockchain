@@ -12,8 +12,12 @@ import (
 	"strings"
 )
 
+const difficulty = 3
+const reward = 50
+const chainFile = "blockchain.dat"
+
 type Block struct {
-	Data         []byte
+	Transactions []*Transaction
 	Hash         []byte
 	PreviousHash []byte
 	Nonce        int
@@ -39,14 +43,23 @@ type Transaction struct {
 	Outputs []TxOutput
 }
 
-const difficulty = 3
-const chainFile = "blockchain.dat"
-
 func (block *Block) CalculateBlockHash(nonce int) []byte {
-	blockData := bytes.Join([][]byte{block.PreviousHash, block.Data, []byte(strconv.Itoa(nonce))}, []byte{})
+	transactions := block.HashTransactions()
+
+	blockData := bytes.Join([][]byte{block.PreviousHash, transactions, []byte(strconv.Itoa(nonce))}, []byte{})
 	hash := sha256.Sum256(blockData)
 
 	return hash[:]
+}
+
+func (block *Block) HashTransactions() []byte {
+	var txIDs [][]byte
+
+	for _, tx := range block.Transactions {
+		txIDs = append(txIDs, tx.ID)
+	}
+
+	return bytes.Join(txIDs, []byte{})
 }
 
 func (block *Block) Mine() {
@@ -72,7 +85,9 @@ func (block *Block) Mine() {
 }
 
 func InitBlockchain() *Blockchain {
-	genesisBlock := Block{Data: []byte("Genesis block")}
+	owner := sha256.Sum256([]byte("John Doe"))
+	genesisTransaction := CoinbaseTx(owner[:])
+	genesisBlock := Block{Transactions: []*Transaction{genesisTransaction}}
 	genesisBlock.Mine()
 
 	chain := Blockchain{Blocks: []*Block{&genesisBlock}}
@@ -107,8 +122,12 @@ func (chain *Blockchain) SaveToFile() error {
 }
 
 func (chain *Blockchain) AddBlock(data string) {
+	// temporary until transactions are implemented
+	owner := sha256.Sum256([]byte("Jane Doe"))
+	genesisTransaction := CoinbaseTx(owner[:])
+
 	previousBlock := chain.Blocks[len(chain.Blocks)-1]
-	newBlock := Block{Data: []byte(data), PreviousHash: previousBlock.Hash}
+	newBlock := Block{Transactions: []*Transaction{genesisTransaction}, PreviousHash: previousBlock.Hash}
 	newBlock.Mine()
 
 	chain.Blocks = append(chain.Blocks, &newBlock)
@@ -129,6 +148,13 @@ func (chain *Blockchain) IsValid() bool {
 	}
 
 	return true
+}
+
+func CoinbaseTx(owner []byte) *Transaction {
+	tx := Transaction{Outputs: []TxOutput{{Amount: reward, Owner: owner}}}
+	tx.ID = tx.CalculateTxID()
+
+	return &tx
 }
 
 func (transaction *Transaction) CalculateTxID() []byte {
@@ -172,8 +198,14 @@ func main() {
 	for i, block := range chain.Blocks {
 		fmt.Printf("Block id: %d\n", i)
 		fmt.Printf("Block Hash: %x\n", block.Hash)
-		fmt.Printf("Block data: %s\n", block.Data)
 		fmt.Printf("Previous Block: %x\n\n", block.PreviousHash)
+
+		fmt.Printf("\nBlock transactions\n")
+		for _, tx := range block.Transactions {
+			fmt.Printf("Transaction ID: %x\n", tx.ID)
+			fmt.Printf("Transaction Inputs: %x\n", tx.Inputs)
+			fmt.Printf("Transaction Outputs: %x\n", tx.Outputs)
+		}
 	}
 
 	err := chain.SaveToFile()
