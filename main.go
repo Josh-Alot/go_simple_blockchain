@@ -157,6 +157,62 @@ func CoinbaseTx(owner []byte) *Transaction {
 	return &tx
 }
 
+func NewTransaction(from []byte, to []byte, amount int) {
+	chain, err := LoadFromFile()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	spentOutputs := make(map[string][]int)
+
+	for _, block := range chain.Blocks {
+		for _, tx := range block.Transactions {
+			for _, input := range tx.Inputs {
+				hash := string(input.TransactionHash)
+				spentOutputs[hash] = append(spentOutputs[hash], input.TxOutputIndex)
+			}
+		}
+	}
+
+	accumulatedAmount := 0
+	var inputs []TxInput
+
+	for _, block := range chain.Blocks {
+	Collect:
+		for _, tx := range block.Transactions {
+			for i, output := range tx.Outputs {
+				if !bytes.Equal(from, output.Owner) {
+					continue
+				}
+
+				isSpent := false
+				for _, spent := range spentOutputs[string(tx.ID)] {
+					if spent == i {
+						isSpent = true
+						break
+					}
+				}
+
+				if isSpent {
+					continue
+				}
+
+				newInput := TxInput{TransactionHash: tx.ID, TxOutputIndex: i}
+				accumulatedAmount += output.Amount
+				inputs = append(inputs, newInput)
+
+				if accumulatedAmount >= amount {
+					break Collect
+				}
+			}
+		}
+	}
+
+	if accumulatedAmount < amount {
+		fmt.Errorf("Not enough cash to spend on this transaction: %d, requested: %d", accumulatedAmount, amount)
+	}
+}
+
 func (transaction *Transaction) CalculateTxID() []byte {
 	tx := struct {
 		Inputs  []TxInput
