@@ -151,6 +151,40 @@ func (chain *Blockchain) IsValid() bool {
 	return true
 }
 
+func (chain *Blockchain) Balance(owner []byte) int {
+	spentOutputs := make(map[string][]int)
+	amount := 0
+
+	for _, block := range chain.Blocks {
+		for _, tx := range block.Transactions {
+			for _, input := range tx.Inputs {
+				hash := string(input.TransactionHash)
+				spentOutputs[hash] = append(spentOutputs[hash], input.TxOutputIndex)
+			}
+		}
+	}
+
+	for _, block := range chain.Blocks {
+		for _, tx := range block.Transactions {
+			for i, output := range tx.Outputs {
+				isSpent := false
+				for _, spent := range spentOutputs[string(tx.ID)] {
+					if spent == i {
+						isSpent = true
+						break
+					}
+				}
+
+				if bytes.Equal(output.Owner, owner) && !isSpent {
+					amount += output.Amount
+				}
+			}
+		}
+	}
+
+	return amount
+}
+
 func CoinbaseTx(owner []byte) *Transaction {
 	tx := Transaction{Outputs: []TxOutput{{Amount: reward, Owner: owner}}}
 	tx.ID = tx.CalculateTxID()
@@ -158,12 +192,7 @@ func CoinbaseTx(owner []byte) *Transaction {
 	return &tx
 }
 
-func NewTransaction(from []byte, to []byte, amount int) (*Transaction, error) {
-	chain, err := LoadFromFile()
-	if err != nil {
-		log.Fatal(err)
-	}
-
+func NewTransaction(chain *Blockchain, from []byte, to []byte, amount int) (*Transaction, error) {
 	spentOutputs := make(map[string][]int)
 
 	for _, block := range chain.Blocks {
