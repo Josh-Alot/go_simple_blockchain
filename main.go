@@ -152,17 +152,8 @@ func (chain *Blockchain) IsValid() bool {
 }
 
 func (chain *Blockchain) Balance(owner []byte) int {
-	spentOutputs := make(map[string][]int)
+	spentOutputs := chain.findSpentOutputs()
 	amount := 0
-
-	for _, block := range chain.Blocks {
-		for _, tx := range block.Transactions {
-			for _, input := range tx.Inputs {
-				hash := string(input.TransactionHash)
-				spentOutputs[hash] = append(spentOutputs[hash], input.TxOutputIndex)
-			}
-		}
-	}
 
 	for _, block := range chain.Blocks {
 		for _, tx := range block.Transactions {
@@ -192,7 +183,7 @@ func CoinbaseTx(owner []byte) *Transaction {
 	return &tx
 }
 
-func NewTransaction(chain *Blockchain, from []byte, to []byte, amount int) (*Transaction, error) {
+func (chain *Blockchain) findSpentOutputs() map[string][]int {
 	spentOutputs := make(map[string][]int)
 
 	for _, block := range chain.Blocks {
@@ -204,6 +195,10 @@ func NewTransaction(chain *Blockchain, from []byte, to []byte, amount int) (*Tra
 		}
 	}
 
+	return spentOutputs
+}
+
+func (chain *Blockchain) findSpendableInputs(from []byte, amount int, spentOutputs map[string][]int) ([]TxInput, int) {
 	accumulatedAmount := 0
 	var inputs []TxInput
 
@@ -237,6 +232,13 @@ Collect:
 			}
 		}
 	}
+
+	return inputs, accumulatedAmount
+}
+
+func NewTransaction(chain *Blockchain, from []byte, to []byte, amount int) (*Transaction, error) {
+	spentOutputs := chain.findSpentOutputs()
+	inputs, accumulatedAmount := chain.findSpendableInputs(from, amount, spentOutputs)
 
 	if accumulatedAmount < amount {
 		return nil, errors.New("not enough cash to spend on this transaction!")
