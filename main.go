@@ -78,7 +78,7 @@ func (block *Block) Mine() {
 			fmt.Printf("Hash: %s, block found\n", hashHex)
 			break
 		} else {
-			fmt.Printf("Hash: %s, block not found\n", hashHex)
+			// fmt.Printf("Hash: %s, block not found\n", hashHex)
 			nonce++
 		}
 
@@ -122,13 +122,9 @@ func (chain *Blockchain) SaveToFile() error {
 	return encoder.Encode(chain)
 }
 
-func (chain *Blockchain) AddBlock(data string) {
-	// temporary until transactions are implemented
-	owner := sha256.Sum256([]byte("Jane Doe"))
-	genesisTransaction := CoinbaseTx(owner[:])
-
+func (chain *Blockchain) AddBlock(transactions []*Transaction) {
 	previousBlock := chain.Blocks[len(chain.Blocks)-1]
-	newBlock := Block{Transactions: []*Transaction{genesisTransaction}, PreviousHash: previousBlock.Hash}
+	newBlock := Block{Transactions: transactions, PreviousHash: previousBlock.Hash}
 	newBlock.Mine()
 
 	chain.Blocks = append(chain.Blocks, &newBlock)
@@ -290,6 +286,24 @@ func main() {
 		}
 	}
 
+	addr1 := sha256.Sum256([]byte("John Doe"))
+	addr2 := sha256.Sum256([]byte("Jane Doe"))
+
+	fmt.Printf("Address 1 balance before transaction: %d\n", chain.Balance(addr1[:]))
+	fmt.Printf("Address 2 balance before transaction: %d\n", chain.Balance(addr2[:]))
+
+	newTransaction, err := NewTransaction(chain, addr1[:], addr2[:], 30)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	transactions := []*Transaction{newTransaction}
+	chain.AddBlock(transactions)
+
+	fmt.Printf("Address 1 balance after transaction: %d\n", chain.Balance(addr1[:]))
+	fmt.Printf("Address 2 balance after transaction: %d\n", chain.Balance(addr2[:]))
+
 	fmt.Println("**** Blockchain ****")
 	for i, block := range chain.Blocks {
 		fmt.Printf("Block id: %d\n", i)
@@ -304,7 +318,7 @@ func main() {
 		}
 	}
 
-	err := chain.SaveToFile()
+	err = chain.SaveToFile()
 	if err != nil {
 		log.Fatal(err)
 	}
