@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/gob"
 	"encoding/json"
@@ -31,6 +34,8 @@ type Blockchain struct {
 type TxInput struct {
 	TransactionHash []byte
 	TxOutputIndex   int
+	Signature       []byte
+	PublicKey       []byte
 }
 
 type TxOutput struct {
@@ -42,6 +47,79 @@ type Transaction struct {
 	ID      []byte
 	Inputs  []TxInput
 	Outputs []TxOutput
+}
+
+type Wallet struct {
+	PrivateKey *ecdsa.PrivateKey
+}
+
+func CreateWallet() Wallet {
+	var err error
+	wallet := Wallet{}
+
+	wallet.PrivateKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return wallet
+}
+
+func (wallet *Wallet) GetAddress() []byte {
+	publicKey := wallet.PrivateKey.PublicKey
+
+	pubKeyBytes, err := publicKey.Bytes()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	hash := sha256.Sum256(pubKeyBytes)
+
+	return hash[:]
+}
+
+func (transaction *Transaction) Sign(privKey *ecdsa.PrivateKey) {
+	if len(transaction.Inputs) == 0 {
+		return
+	}
+
+	// the SignASN1 does not use the reader, however, the function requires it
+	// this is the only reason that i'm sending the reader
+	// in future Go versions, i'll remove it if becomes deprecated
+	signature, err := ecdsa.SignASN1(rand.Reader, privKey, transaction.ID)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pubKeyBytes, err := privKey.PublicKey.Bytes()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for i := range transaction.Inputs {
+		transaction.Inputs[i].Signature = signature
+		transaction.Inputs[i].PublicKey = pubKeyBytes
+	}
+}
+
+func (transaction *Transaction) VerifySignature() bool {
+	if len(transaction.Inputs) == 0 {
+		return true
+	}
+
+	for _, input := range transaction.Inputs {
+		pubKey, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), input.PublicKey)
+		if err != nil {
+			fmt.Printf("Failed to verify signature: %s\n", err)
+			return false
+		}
+
+		validSignature := ecdsa.VerifyASN1(pubKey, transaction.ID, input.Signature)
+		if !validSignature {
+			return false
+		}
+	}
+	return true
 }
 
 func (block *Block) CalculateBlockHash(nonce int) []byte {
@@ -85,9 +163,8 @@ func (block *Block) Mine() {
 	}
 }
 
-func InitBlockchain() *Blockchain {
-	owner := sha256.Sum256([]byte("John Doe"))
-	genesisTransaction := CoinbaseTx(owner[:])
+func InitBlockchain(addr []byte) *Blockchain {
+	genesisTransaction := CoinbaseTx(addr)
 	genesisBlock := Block{Transactions: []*Transaction{genesisTransaction}}
 	genesisBlock.Mine()
 
@@ -122,12 +199,20 @@ func (chain *Blockchain) SaveToFile() error {
 	return encoder.Encode(chain)
 }
 
-func (chain *Blockchain) AddBlock(transactions []*Transaction) {
+func (chain *Blockchain) AddBlock(transactions []*Transaction) error {
+	for _, transaction := range transactions {
+		if !transaction.ValidateTransaction(chain) {
+			return errors.New("failed to validate transactions")
+		}
+	}
+
 	previousBlock := chain.Blocks[len(chain.Blocks)-1]
 	newBlock := Block{Transactions: transactions, PreviousHash: previousBlock.Hash}
 	newBlock.Mine()
 
 	chain.Blocks = append(chain.Blocks, &newBlock)
+
+	return nil
 }
 
 func (chain *Blockchain) IsValid() bool {
@@ -192,6 +277,18 @@ func (chain *Blockchain) findSpentOutputs() map[string][]int {
 	}
 
 	return spentOutputs
+}
+
+func (chain *Blockchain) findTransaction(txId []byte) (*Transaction, error) {
+	for _, block := range chain.Blocks {
+		for _, transaction := range block.Transactions {
+			if bytes.Equal(txId, transaction.ID) {
+				return transaction, nil
+			}
+		}
+	}
+
+	return nil, errors.New("transaction not found!")
 }
 
 func (chain *Blockchain) findSpendableInputs(from []byte, amount int, spentOutputs map[string][]int) ([]TxInput, int) {
@@ -269,11 +366,41 @@ func (transaction *Transaction) CalculateTxID() []byte {
 	return id[:]
 }
 
+func (transaction *Transaction) VerifyTxOwnership(chain *Blockchain) bool {
+	if len(transaction.Inputs) == 0 {
+		return true
+	}
+
+	for _, input := range transaction.Inputs {
+		tx, err := chain.findTransaction(input.TransactionHash)
+		if err != nil {
+			fmt.Printf("%v\n", err)
+			return false
+		}
+
+		output := tx.Outputs[input.TxOutputIndex]
+		hash := sha256.Sum256(input.PublicKey)
+
+		if !bytes.Equal(hash[:], output.Owner) {
+			return false
+		}
+
+	}
+
+	return true
+}
+
+func (transaction *Transaction) ValidateTransaction(chain *Blockchain) bool {
+	return transaction.VerifySignature() && transaction.VerifyTxOwnership(chain)
+}
+
 func main() {
 	var chain *Blockchain
+	john := CreateWallet()
+	jane := CreateWallet()
 
 	if _, err := os.Stat(chainFile); os.IsNotExist(err) {
-		chain = InitBlockchain()
+		chain = InitBlockchain(john.GetAddress())
 	} else {
 		chain, err = LoadFromFile()
 		if err != nil {
@@ -286,23 +413,24 @@ func main() {
 		}
 	}
 
-	addr1 := sha256.Sum256([]byte("John Doe"))
-	addr2 := sha256.Sum256([]byte("Jane Doe"))
+	fmt.Printf("Address 1 balance before transaction: %d\n", chain.Balance(john.GetAddress()))
+	fmt.Printf("Address 2 balance before transaction: %d\n", chain.Balance(jane.GetAddress()))
 
-	fmt.Printf("Address 1 balance before transaction: %d\n", chain.Balance(addr1[:]))
-	fmt.Printf("Address 2 balance before transaction: %d\n", chain.Balance(addr2[:]))
-
-	newTransaction, err := NewTransaction(chain, addr1[:], addr2[:], 30)
-
+	newTransaction, err := NewTransaction(chain, john.GetAddress(), jane.GetAddress(), 30)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	transactions := []*Transaction{newTransaction}
-	chain.AddBlock(transactions)
+	newTransaction.Sign(jane.PrivateKey)
 
-	fmt.Printf("Address 1 balance after transaction: %d\n", chain.Balance(addr1[:]))
-	fmt.Printf("Address 2 balance after transaction: %d\n", chain.Balance(addr2[:]))
+	transactions := []*Transaction{newTransaction}
+	err = chain.AddBlock(transactions)
+	if err != nil {
+		fmt.Printf("%v\n", err)
+	}
+
+	fmt.Printf("Address 1 balance after transaction: %d\n", chain.Balance(john.GetAddress()))
+	fmt.Printf("Address 2 balance after transaction: %d\n", chain.Balance(jane.GetAddress()))
 
 	fmt.Println("**** Blockchain ****")
 	for i, block := range chain.Blocks {
