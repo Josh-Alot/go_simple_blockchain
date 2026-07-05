@@ -221,7 +221,7 @@ func main() {
 
 		os.Exit(0)
 	default:
-		fmt.Println("command not found\n") // name if after
+		fmt.Printf("command not found\n") // name if after
 		os.Exit(1)
 	}
 }
