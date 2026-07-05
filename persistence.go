@@ -7,7 +7,7 @@ import (
 
 const chainFile = "blockchain.dat"
 
-func LoadFromFile() (*Blockchain, error) {
+func LoadChainFromFile() (*Blockchain, error) {
 	chain := Blockchain{}
 
 	file, err := os.Open(chainFile)
