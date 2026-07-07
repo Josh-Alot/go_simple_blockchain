@@ -14,6 +14,7 @@ func main() {
 	var err error
 
 	// cli commands
+	startnode := flag.NewFlagSet("startnode", flag.ExitOnError)
 	createwallet := flag.NewFlagSet("createwallet", flag.ExitOnError)
 	createblockchain := flag.NewFlagSet("createblockchain", flag.ExitOnError)
 	printchain := flag.NewFlagSet("printchain", flag.ExitOnError)
@@ -26,6 +27,22 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "startnode":
+		port := startnode.String("port", "", "the IP port number")
+		connect := startnode.String("connect", "", "the IP to connect")
+		startnode.Parse(os.Args[2:])
+
+		if *port == "" {
+			fmt.Println("provide a valid port (example: 8080)")
+			os.Exit(1)
+		}
+
+		chain, err := LoadChainFromFile()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		StartNode(*port, *connect, chain)
 	case "createwallet":
 		createwallet.Parse(os.Args[2:])
 
