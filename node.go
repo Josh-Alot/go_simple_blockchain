@@ -39,12 +39,36 @@ func StartNode(port, connectTo string, chain *Blockchain) {
 	}
 }
 
+func connectToPeer(address string, chain *Blockchain) {
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	sendVersion(conn, chain)
+	err = handleMessage(conn)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func handleConnection(conn net.Conn, chain *Blockchain) {
+	err := handleMessage(conn)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	sendVersion(conn, chain)
+	conn.Close()
+}
+
+func handleMessage(conn net.Conn) error {
 	var message Message
 	var version Version
 
 	if err := gob.NewDecoder(conn).Decode(&message); err != nil {
-		fmt.Printf("decode error: %v\n", err)
+		return err
 	}
 
 	switch message.Command {
@@ -52,9 +76,7 @@ func handleConnection(conn net.Conn, chain *Blockchain) {
 		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&version)
 		fmt.Printf("peer version: %d\n", version.Height)
 	}
-
-	sendVersion(conn, chain)
-	conn.Close()
+	return nil
 }
 
 func sendVersion(conn net.Conn, chain *Blockchain) {
@@ -69,28 +91,5 @@ func sendVersion(conn net.Conn, chain *Blockchain) {
 	message := Message{Command: "version", Payload: payload}
 	if err := gob.NewEncoder(conn).Encode(message); err != nil {
 		log.Fatal(err)
-	}
-}
-
-func connectToPeer(address string, chain *Blockchain) {
-	var message Message
-	var version Version
-
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-
-	sendVersion(conn, chain)
-
-	if err := gob.NewDecoder(conn).Decode(&message); err != nil {
-		fmt.Printf("decode error: %v\n", err)
-	}
-
-	switch message.Command {
-	case "version":
-		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&version)
-		fmt.Printf("peer version: %d\n", version.Height)
 	}
 }
