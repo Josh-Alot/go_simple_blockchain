@@ -157,11 +157,17 @@ func main() {
 		os.Exit(0)
 	case "send":
 		// args validation
+		node := send.String("node", "", "the node IP address running")
 		from := send.String("from", "", "the origin address")
 		to := send.String("to", "", "the destiny address")
 		amount := send.Int("amount", 0, "the amount the origin send to destiny")
 
 		send.Parse(os.Args[2:])
+
+		if *node == "" {
+			fmt.Printf("provide the node IP address (example: localhost:3000)\n")
+			os.Exit(1)
+		}
 
 		if *from == "" {
 			fmt.Printf("give the wallet sender address\n")
@@ -181,7 +187,6 @@ func main() {
 		// blockchain validation
 		if _, err = os.Stat(chainFile); os.IsNotExist(err) {
 			fmt.Printf("blockchain not found, use \"createblockchain\" to create a blockchain\n")
-
 			os.Exit(1)
 		} else {
 			chain, err = LoadChainFromFile()
@@ -222,19 +227,9 @@ func main() {
 			os.Exit(1)
 		}
 
-		// signs and create a block
+		// signs and submits the block to the node
 		transaction.Sign(wallet.PrivateKey)
-		transactions := []*Transaction{transaction}
-		err = chain.AddBlock(transactions)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// saves the blockchain file
-		err = chain.SaveToFile()
-		if err != nil {
-			log.Fatal(err)
-		}
+		SendTransaction(*node, transaction)
 
 		os.Exit(0)
 	default:
