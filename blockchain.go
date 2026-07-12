@@ -37,6 +37,32 @@ func (chain *Blockchain) AddBlock(transactions []*Transaction) error {
 	return nil
 }
 
+func (chain *Blockchain) AddMinedBlock(incomingBlock *Block) error {
+	incomingHash := incomingBlock.CalculateBlockHash(incomingBlock.Nonce)
+	previousBlock := chain.Blocks[len(chain.Blocks)-1]
+
+	for _, transaction := range incomingBlock.Transactions {
+		if !transaction.ValidateTransaction(chain) {
+			return errors.New("failed to validate incoming transactions")
+		}
+	}
+
+	if !bytes.Equal(incomingBlock.PreviousHash, previousBlock.Hash) {
+		return errors.New("failed to verify incoming block previous hash")
+	}
+
+	if !bytes.Equal(incomingHash, incomingBlock.Hash) {
+		return errors.New("failed to verify incoming block hash")
+	}
+
+	if verified := VerifyBlockHashDifficulty(incomingHash); !verified {
+		return errors.New("failed to verify incoming block PoW")
+	}
+
+	chain.Blocks = append(chain.Blocks, incomingBlock)
+	return nil
+}
+
 func (chain *Blockchain) IsValid() bool {
 	for i := len(chain.Blocks) - 1; i > 0; i-- {
 		currentBlock := chain.Blocks[i]
@@ -77,6 +103,16 @@ func (chain *Blockchain) Balance(owner []byte) int {
 	}
 
 	return amount
+}
+
+func (chain *Blockchain) GetBlock(hash []byte) (*Block, error) {
+	for _, block := range chain.Blocks {
+		if bytes.Equal(hash, block.Hash) {
+			return block, nil
+		}
+	}
+
+	return nil, errors.New("block hash not found!")
 }
 
 func (chain *Blockchain) findSpentOutputs() map[string][]int {
