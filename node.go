@@ -10,6 +10,9 @@ import (
 
 const cmdVersion = "version"
 const cmdTransaction = "transaction"
+const cmdInv = "inv"
+const cmdGetData = "getdata"
+const cmdBlock = "block"
 
 type Node struct {
 	Address string
@@ -25,6 +28,16 @@ type Message struct {
 type Version struct {
 	AddrFrom string
 	Height   int
+}
+
+type Inv struct {
+	Hashes   [][]byte
+	AddrFrom string
+}
+
+type GetData struct {
+	Hash     []byte
+	AddrFrom string
 }
 
 func StartNode(port, connectTo string, chain *Blockchain) {
@@ -82,8 +95,6 @@ func (node *Node) handleConnection(conn net.Conn) {
 
 func (node *Node) handleMessage(conn net.Conn) (string, error) {
 	var message Message
-	var version Version
-	var transaction *Transaction
 
 	if err := gob.NewDecoder(conn).Decode(&message); err != nil {
 		return "", err
@@ -91,12 +102,16 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 
 	switch message.Command {
 	case cmdVersion:
+		var version Version
 		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&version)
-		fmt.Printf("peer version: %d\n", version.Height)
 
+		fmt.Printf("peer version: %d\n", version.Height)
 		node.handleAddr(version.AddrFrom)
+
 	case cmdTransaction:
+		var transaction *Transaction
 		gob.NewDecoder((bytes.NewReader(message.Payload))).Decode(&transaction)
+
 		transactions := []*Transaction{transaction}
 		err := node.Chain.AddBlock(transactions)
 		if err != nil {
@@ -107,22 +122,67 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		if err != nil {
 			return "", err
 		}
+
+		newBlock := node.Chain.Blocks[len(node.Chain.Blocks)-1]
+		node.broadcastInv(newBlock)
+
+	case cmdInv:
+		var inv *Inv
+		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&inv)
+
+		for _, hash := range inv.Hashes {
+			_, err := node.Chain.GetBlock(hash)
+			if err != nil {
+				log.Println("block not found, fetching block data on chain")
+
+				getData := GetData{Hash: hash, AddrFrom: node.Address}
+				if err := sendTo(inv.AddrFrom, cmdGetData, getData); err != nil {
+					log.Printf("%v\n", err)
+				}
+			}
+		}
+
+	case cmdGetData:
+		var getData *GetData
+		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&getData)
+
+		block, err := node.Chain.GetBlock(getData.Hash)
+		if err != nil {
+			log.Printf("%v\n", err)
+			break
+		}
+
+		if err := sendTo(getData.AddrFrom, cmdBlock, block); err != nil {
+			log.Printf("%v\n", err)
+		}
+
+	case cmdBlock:
+		var block *Block
+		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&block)
+
+		err := node.Chain.AddMinedBlock(block)
+		if err != nil {
+			log.Printf("%v\n", err)
+			break
+		}
+
+		err = node.Chain.SaveToFile()
+		if err != nil {
+			log.Printf("%v\n", err)
+			break
+		}
+
+		node.broadcastInv(block)
 	}
+
 	return message.Command, nil
 }
 
 func (node *Node) sendVersion(conn net.Conn) {
-	var buffer bytes.Buffer
-
 	version := Version{AddrFrom: node.Address, Height: len(node.Chain.Blocks)}
-	if err := gob.NewEncoder(&buffer).Encode(version); err != nil {
-		log.Fatal(err)
-	}
-
-	payload := buffer.Bytes()
-	message := Message{Command: cmdVersion, Payload: payload}
-	if err := gob.NewEncoder(conn).Encode(message); err != nil {
-		log.Fatal(err)
+	err := sendMessage(cmdVersion, conn, version)
+	if err != nil {
+		log.Printf("%v\n", err)
 	}
 }
 
@@ -143,24 +203,38 @@ func (node *Node) handleAddr(address string) {
 	fmt.Printf("known peers: %v\n", node.Peers)
 }
 
-func SendTransaction(address string, transaction *Transaction) error {
+func sendMessage(command string, conn net.Conn, payload any) error {
 	var buffer bytes.Buffer
+	if err := gob.NewEncoder(&buffer).Encode(payload); err != nil {
+		return err
+	}
 
+	message := Message{Command: command, Payload: buffer.Bytes()}
+	if err := gob.NewEncoder(conn).Encode(message); err != nil {
+		return err
+	}
+	return nil
+}
+
+func SendTransaction(address string, transaction *Transaction) error {
+	return sendTo(address, cmdTransaction, transaction)
+}
+
+func (node *Node) broadcastInv(newBlock *Block) {
+	inv := Inv{Hashes: [][]byte{newBlock.Hash}, AddrFrom: node.Address}
+	for _, peer := range node.Peers {
+		if err := sendTo(peer, cmdInv, inv); err != nil {
+			log.Printf("%v\n", err)
+		}
+	}
+}
+
+func sendTo(address, command string, payload any) error {
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer conn.Close()
 
-	if err := gob.NewEncoder(&buffer).Encode(transaction); err != nil {
-		log.Fatal(err)
-	}
-
-	payload := buffer.Bytes()
-	message := Message{Command: cmdTransaction, Payload: payload}
-	if err := gob.NewEncoder(conn).Encode(message); err != nil {
-		log.Fatal(err)
-	}
-
-	return nil
+	return sendMessage(command, conn, payload)
 }
