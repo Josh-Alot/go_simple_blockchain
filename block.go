@@ -36,22 +36,25 @@ func (block *Block) HashTransactions() []byte {
 
 func (block *Block) Mine() {
 	nonce := 0
-	goal := strings.Repeat("0", difficulty)
 
 	for {
 		hash := block.CalculateBlockHash(nonce)
-		hashHex := fmt.Sprintf("%x", hash)
+		hashVerified := VerifyBlockHashDifficulty(hash)
 
-		if strings.HasPrefix(hashHex, goal) {
+		if hashVerified {
 			block.Hash = hash
 			block.Nonce = nonce
 
-			fmt.Printf("Hash: %s, block found\n", hashHex)
+			fmt.Printf("Hash: %x, block found\n", hash)
 			break
 		} else {
-			// fmt.Printf("Hash: %s, block not found\n", hashHex)
 			nonce++
 		}
 
 	}
+}
+
+func VerifyBlockHashDifficulty(hash []byte) bool {
+	hashHex := fmt.Sprintf("%x", hash)
+	return strings.HasPrefix(hashHex, strings.Repeat("0", difficulty))
 }
