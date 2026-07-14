@@ -50,7 +50,7 @@ func StartNode(port, connectTo string, chain *Blockchain) {
 	defer listener.Close()
 
 	if connectTo != "" {
-		node.connectToPeer(connectTo)
+		go node.connectToPeer(connectTo)
 	}
 
 	for {
@@ -72,25 +72,31 @@ func (node *Node) connectToPeer(address string) {
 	defer conn.Close()
 
 	node.sendVersion(conn)
-	_, err = node.handleMessage(conn)
-	if err != nil {
-		log.Printf("%v", err)
-		return
+
+	for {
+		_, err = node.handleMessage(conn)
+		if err != nil {
+			log.Printf("%v", err)
+			break
+		}
 	}
 }
 
 func (node *Node) handleConnection(conn net.Conn) {
-	command, err := node.handleMessage(conn)
-	if err != nil {
-		log.Printf("%v", err)
-		return
+	defer conn.Close()
+
+	for {
+		command, err := node.handleMessage(conn)
+		if err != nil {
+			log.Printf("%v", err)
+			break
+		}
+
+		if command == cmdVersion {
+			node.sendVersion(conn)
+		}
 	}
 
-	if command == cmdVersion {
-		node.sendVersion(conn)
-	}
-
-	conn.Close()
 }
 
 func (node *Node) handleMessage(conn net.Conn) (string, error) {
