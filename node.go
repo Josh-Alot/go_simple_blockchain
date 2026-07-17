@@ -119,6 +119,12 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		fmt.Printf("peer version: %d\n", version.Height)
 		node.handleAddr(version.AddrFrom)
 
+		if version.Height > len(node.Chain.Blocks) {
+			if err := node.syncChain(conn, version.Height); err != nil {
+				log.Printf("%v", err)
+			}
+		}
+
 	case cmdTransaction:
 		var transaction *Transaction
 		gob.NewDecoder((bytes.NewReader(message.Payload))).Decode(&transaction)
@@ -201,6 +207,40 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 	}
 
 	return message.Command, nil
+}
+
+func (node *Node) syncChain(conn net.Conn, peerHeight int) error {
+	for len(node.Chain.Blocks) < peerHeight {
+		height := len(node.Chain.Blocks)
+		getBlockRequest := GetBlockRequest{Height: height}
+		if err := sendMessage(cmdGetBlock, conn, getBlockRequest); err != nil {
+			return err
+		}
+
+		var message Message
+		err := gob.NewDecoder(conn).Decode(&message)
+		if err != nil {
+			return err
+		}
+
+		var block Block
+		err = gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&block)
+		if err != nil {
+			return err
+		}
+
+		err = node.Chain.AddMinedBlock(&block)
+		if err != nil {
+			return err
+		}
+
+		err = node.Chain.SaveToFile()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (node *Node) sendVersion(conn net.Conn) {
