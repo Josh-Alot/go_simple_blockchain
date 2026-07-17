@@ -13,6 +13,7 @@ const cmdTransaction = "transaction"
 const cmdInv = "inv"
 const cmdGetData = "getdata"
 const cmdBlock = "block"
+const cmdGetBlock = "getblock"
 
 type Node struct {
 	Address string
@@ -35,9 +36,13 @@ type Inv struct {
 	AddrFrom string
 }
 
-type GetData struct {
+type GetDataRequest struct {
 	Hash     []byte
 	AddrFrom string
+}
+
+type GetBlockRequest struct {
+	Height int
 }
 
 func StartNode(port, connectTo string, chain *Blockchain) {
@@ -141,7 +146,7 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 			if err != nil {
 				log.Println("block not found, fetching block data on chain")
 
-				getData := GetData{Hash: hash, AddrFrom: node.Address}
+				getData := GetDataRequest{Hash: hash, AddrFrom: node.Address}
 				if err := sendTo(inv.AddrFrom, cmdGetData, getData); err != nil {
 					log.Printf("%v\n", err)
 				}
@@ -149,7 +154,7 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		}
 
 	case cmdGetData:
-		var getData *GetData
+		var getData *GetDataRequest
 		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&getData)
 
 		block, err := node.Chain.GetBlock(getData.Hash)
@@ -159,6 +164,20 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		}
 
 		if err := sendTo(getData.AddrFrom, cmdBlock, block); err != nil {
+			log.Printf("%v\n", err)
+		}
+
+	case cmdGetBlock:
+		var getBlock *GetBlockRequest
+		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&getBlock)
+
+		block, err := node.Chain.GetBlockAt(getBlock.Height)
+		if err != nil {
+			log.Printf("%v\n", err)
+			break
+		}
+
+		if err := sendMessage(cmdBlock, conn, block); err != nil {
 			log.Printf("%v\n", err)
 		}
 

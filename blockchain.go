@@ -105,6 +105,14 @@ func (chain *Blockchain) Balance(owner []byte) int {
 	return amount
 }
 
+func (chain *Blockchain) GetBlockAt(height int) (*Block, error) {
+	if height >= len(chain.Blocks) || height < 0 {
+		return nil, errors.New("block doesn't exist on chain")
+	}
+
+	return chain.Blocks[height], nil
+}
+
 func (chain *Blockchain) GetBlock(hash []byte) (*Block, error) {
 	for _, block := range chain.Blocks {
 		if bytes.Equal(hash, block.Hash) {
