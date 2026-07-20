@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"slices"
 	"sync"
 )
 
@@ -323,7 +324,13 @@ func SendTransaction(address string, transaction *Transaction) error {
 
 func (node *Node) broadcastInv(newBlock *Block) {
 	inv := Inv{Hashes: [][]byte{newBlock.Hash}, AddrFrom: node.Address}
-	for _, peer := range node.Peers {
+
+	// the unlock won't be deferred because it cannot lock all the goroutines on the network on slow I/) syncs
+	node.mu.Lock()
+	peers := slices.Clone(node.Peers)
+	node.mu.Unlock()
+
+	for _, peer := range peers {
 		if err := sendTo(peer, cmdInv, inv); err != nil {
 			log.Printf("%v\n", err)
 		}
