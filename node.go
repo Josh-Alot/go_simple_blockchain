@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 )
 
 const cmdVersion = "version"
@@ -17,6 +18,7 @@ const cmdGetBlock = "getblock"
 
 type Node struct {
 	Address string
+	mu      sync.Mutex
 	Chain   *Blockchain
 	Peers   []string
 }
@@ -119,7 +121,7 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		fmt.Printf("peer version: %d\n", version.Height)
 		node.handleAddr(version.AddrFrom)
 
-		if version.Height > len(node.Chain.Blocks) {
+		if version.Height > node.getChainLength() {
 			if err := node.syncChain(conn, version.Height); err != nil {
 				log.Printf("%v", err)
 			}
@@ -148,7 +150,7 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&inv)
 
 		for _, hash := range inv.Hashes {
-			_, err := node.Chain.GetBlock(hash)
+			_, err := node.getBlock(hash)
 			if err != nil {
 				log.Println("block not found, fetching block data on chain")
 
@@ -163,7 +165,7 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		var getData *GetDataRequest
 		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&getData)
 
-		block, err := node.Chain.GetBlock(getData.Hash)
+		block, err := node.getBlock(getData.Hash)
 		if err != nil {
 			log.Printf("%v\n", err)
 			break
@@ -177,7 +179,7 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		var getBlock *GetBlockRequest
 		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&getBlock)
 
-		block, err := node.Chain.GetBlockAt(getBlock.Height)
+		block, err := node.getBlockAt(getBlock.Height)
 		if err != nil {
 			log.Printf("%v\n", err)
 			break
@@ -191,13 +193,7 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		var block *Block
 		gob.NewDecoder(bytes.NewReader(message.Payload)).Decode(&block)
 
-		err := node.Chain.AddMinedBlock(block)
-		if err != nil {
-			log.Printf("%v\n", err)
-			break
-		}
-
-		err = node.Chain.SaveToFile()
+		err := node.appendAndSaveBlock(block)
 		if err != nil {
 			log.Printf("%v\n", err)
 			break
@@ -209,9 +205,51 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 	return message.Command, nil
 }
 
+func (node *Node) appendAndSaveBlock(block *Block) error {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+
+	err := node.Chain.AddMinedBlock(block)
+	if err != nil {
+		return err
+	}
+
+	err = node.Chain.SaveToFile()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (node *Node) getChainLength() int {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+
+	return len(node.Chain.Blocks)
+}
+
+func (node *Node) getBlock(hash []byte) (*Block, error) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+
+	return node.Chain.GetBlock(hash)
+}
+
+func (node *Node) getBlockAt(height int) (*Block, error) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+
+	return node.Chain.GetBlockAt(height)
+}
+
 func (node *Node) syncChain(conn net.Conn, peerHeight int) error {
-	for len(node.Chain.Blocks) < peerHeight {
-		height := len(node.Chain.Blocks)
+	for {
+		height := node.getChainLength()
+		if height >= peerHeight {
+			break
+		}
+
 		getBlockRequest := GetBlockRequest{Height: height}
 		if err := sendMessage(cmdGetBlock, conn, getBlockRequest); err != nil {
 			return err
@@ -229,12 +267,7 @@ func (node *Node) syncChain(conn net.Conn, peerHeight int) error {
 			return err
 		}
 
-		err = node.Chain.AddMinedBlock(&block)
-		if err != nil {
-			return err
-		}
-
-		err = node.Chain.SaveToFile()
+		err = node.appendAndSaveBlock(&block)
 		if err != nil {
 			return err
 		}
@@ -244,7 +277,7 @@ func (node *Node) syncChain(conn net.Conn, peerHeight int) error {
 }
 
 func (node *Node) sendVersion(conn net.Conn) {
-	version := Version{AddrFrom: node.Address, Height: len(node.Chain.Blocks)}
+	version := Version{AddrFrom: node.Address, Height: node.getChainLength()}
 	err := sendMessage(cmdVersion, conn, version)
 	if err != nil {
 		log.Printf("%v\n", err)
@@ -252,6 +285,9 @@ func (node *Node) sendVersion(conn net.Conn) {
 }
 
 func (node *Node) handleAddr(address string) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+
 	knownAddr := false
 
 	for _, peer := range node.Peers {
