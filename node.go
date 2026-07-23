@@ -133,18 +133,16 @@ func (node *Node) handleMessage(conn net.Conn) (string, error) {
 		gob.NewDecoder((bytes.NewReader(message.Payload))).Decode(&transaction)
 
 		transactions := []*Transaction{transaction}
-		err := node.Chain.AddBlock(transactions)
+		previousHash := node.getLastHash()
+		block := MineBlock(transactions, previousHash)
+
+		err := node.appendAndSaveBlock(block)
 		if err != nil {
-			return "", err
+			log.Printf("%v", err)
+			break
 		}
 
-		err = node.Chain.SaveToFile()
-		if err != nil {
-			return "", err
-		}
-
-		newBlock := node.Chain.Blocks[len(node.Chain.Blocks)-1]
-		node.broadcastInv(newBlock)
+		node.broadcastInv(block)
 
 	case cmdInv:
 		var inv *Inv
@@ -345,4 +343,11 @@ func sendTo(address, command string, payload any) error {
 	defer conn.Close()
 
 	return sendMessage(command, conn, payload)
+}
+
+func (node *Node) getLastHash() []byte {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+
+	return node.Chain.Blocks[len(node.Chain.Blocks)-1].Hash
 }

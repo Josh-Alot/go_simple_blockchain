@@ -21,20 +21,10 @@ func InitBlockchain(addr []byte) *Blockchain {
 	return &chain
 }
 
-func (chain *Blockchain) AddBlock(transactions []*Transaction) error {
-	for _, transaction := range transactions {
-		if !transaction.ValidateTransaction(chain) {
-			return errors.New("failed to validate transactions")
-		}
-	}
-
-	previousBlock := chain.Blocks[len(chain.Blocks)-1]
-	newBlock := Block{Transactions: transactions, PreviousHash: previousBlock.Hash}
+func MineBlock(transactions []*Transaction, previousHash []byte) *Block {
+	newBlock := Block{Transactions: transactions, PreviousHash: previousHash}
 	newBlock.Mine()
-
-	chain.Blocks = append(chain.Blocks, &newBlock)
-
-	return nil
+	return &newBlock
 }
 
 func (chain *Blockchain) AddMinedBlock(incomingBlock *Block) error {
